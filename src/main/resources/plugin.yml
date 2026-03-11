@@ -21,6 +21,12 @@ commands:
     description: Open the Minigames browser or manage minigame sessions
     usage: /minigame [shop|leave|tokens|start|end|setspawn]
     default: true
+  bw:
+    description: Bed Wars admin command
+    usage: /bw <setspawn|setbed|setgenerator|setchest|setnpc|setdiamond|setemerald|start|end|addplayer>
+    permission: simpleevents.bedwars.admin
+    default: op
+    aliases: [bedwars]
 
 permissions:
   simpleevents.admin:
@@ -31,4 +37,7 @@ permissions:
     default: true
   simpleevents.minigame.admin:
     description: Access to minigame admin commands (start, end, setspawn, tokens give/take/set)
+    default: op
+  simpleevents.bedwars.admin:
+    description: Access to Bed Wars admin commands (/bw)
     default: op

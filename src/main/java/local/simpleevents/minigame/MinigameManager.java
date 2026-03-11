@@ -25,8 +25,8 @@ public class MinigameManager {
 
     // Default countdown seconds before a match begins
     static final int COUNTDOWN_SECONDS = 30;
-    // Default waiting period (seconds) before the next match waiting room opens
-    static final int NEXT_MATCH_WAIT_SECONDS = 120;
+    // Default waiting period (seconds) before the next match waiting room opens — 30 minutes
+    static final int NEXT_MATCH_WAIT_SECONDS = 1800;
     // Maximum multiplier value
     static final double MAX_MULTIPLIER = 3.0;
 
@@ -99,16 +99,31 @@ public class MinigameManager {
 
             if (timeLeft[0] <= 0) {
                 Bukkit.getScheduler().cancelTask(session.getCountdownTaskId());
-                if (session.getParticipantCount() == 0) {
-                    // Nobody joined – bump multiplier, reset
+                int minPlayers = 4;
+                if (session.getParticipantCount() < minPlayers) {
+                    // Not enough players – bump multiplier, reset
                     double newMult = Math.min(session.getPointMultiplier() + 0.5, MAX_MULTIPLIER);
                     session.setState(MinigameState.ENDED);
-                    plugin.getLogger().info("[Minigames] No players for "
-                            + session.getType().getKey() + ", bumping multiplier to " + newMult);
+                    if (session.getParticipantCount() == 0) {
+                        plugin.getLogger().info("[Minigames] No players for "
+                                + session.getType().getKey() + ", bumping multiplier to " + newMult);
+                    } else {
+                        broadcastToSession(session, "§c[Minigames] Not enough players to start ("
+                                + session.getParticipantCount() + "/" + minPlayers + " needed). Resetting...");
+                        plugin.getLogger().info("[Minigames] Not enough players for "
+                                + session.getType().getKey() + ", bumping multiplier to " + newMult);
+                    }
                     MinigameSession next = newSessionFor(session.getType());
                     next.setPointMultiplier(newMult);
                 } else {
                     session.setState(MinigameState.IN_PROGRESS);
+                    Location gameSpawn = getSpawnLocation(session.getType());
+                    if (gameSpawn != null) {
+                        for (UUID uid : session.getParticipantIds()) {
+                            Player p = Bukkit.getPlayer(uid);
+                            if (p != null) p.teleport(gameSpawn);
+                        }
+                    }
                     broadcastToSession(session, "§a[Minigames] §lThe match has begun! §aGood luck!");
                 }
             }
@@ -229,11 +244,17 @@ public class MinigameManager {
             player.sendMessage("§c[Minigames] That minigame is currently in progress or unavailable.");
             return false;
         }
+        Location lobby = getSpawnLocation(type);
+        if (lobby == null) {
+            player.sendMessage("§c[Minigames] The spawn/lobby for this minigame has not been set. Please contact an admin.");
+            return false;
+        }
         boolean added = session.addParticipant(player);
         if (added) {
             player.sendMessage("§a[Minigames] §7You joined §a"
                     + LEGACY.serialize(LEGACY.deserialize(type.getDisplayName()))
                     + "§7! Players: §a" + session.getParticipantCount());
+            player.teleport(lobby);
         }
         return added;
     }

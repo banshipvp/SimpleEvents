@@ -11,6 +11,12 @@ import local.simpleevents.minigame.MinigameCommand;
 import local.simpleevents.minigame.MinigameGui;
 import local.simpleevents.minigame.MinigameListener;
 import local.simpleevents.minigame.MinigameManager;
+import local.simpleevents.minigame.VoidChunkGenerator;
+import org.bukkit.generator.ChunkGenerator;
+import local.simpleevents.minigame.bedwars.BedWarsCommand;
+import local.simpleevents.minigame.bedwars.BedWarsGame;
+import local.simpleevents.minigame.bedwars.BedWarsListener;
+import local.simpleevents.minigame.bedwars.BedWarsNpcManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class SimpleEventsPlugin extends JavaPlugin {
@@ -22,6 +28,8 @@ public final class SimpleEventsPlugin extends JavaPlugin {
     private DungeonGui dungeonGui;
     private MinigameManager minigameManager;
     private MinigameGui minigameGui;
+    private BedWarsGame bedWarsGame;
+    private BedWarsNpcManager bedWarsNpcManager;
 
     public static SimpleEventsPlugin getInstance() { return instance; }
 
@@ -61,7 +69,16 @@ public final class SimpleEventsPlugin extends JavaPlugin {
         getCommand("minigame").setExecutor(minigameCommand);
         getCommand("minigame").setTabCompleter(minigameCommand);
 
-        getLogger().info("SimpleEvents enabled — Boss, Dungeon & Minigame systems active.");
+        // Bed Wars system
+        bedWarsGame = new BedWarsGame(this);
+        bedWarsNpcManager = new BedWarsNpcManager(this, bedWarsGame);
+        BedWarsListener bedWarsListener = new BedWarsListener(this, bedWarsGame, bedWarsNpcManager);
+        getServer().getPluginManager().registerEvents(bedWarsListener, this);
+        BedWarsCommand bedWarsCommand = new BedWarsCommand(this, bedWarsGame, bedWarsNpcManager);
+        getCommand("bw").setExecutor(bedWarsCommand);
+        getCommand("bw").setTabCompleter(bedWarsCommand);
+
+        getLogger().info("SimpleEvents enabled — Boss, Dungeon, Minigame & Bed Wars systems active.");
     }
 
     @Override
@@ -69,6 +86,8 @@ public final class SimpleEventsPlugin extends JavaPlugin {
         if (bossManager != null) bossManager.stop();
         if (dungeonManager != null) dungeonManager.shutdown();
         if (minigameManager != null) minigameManager.shutdown();
+        if (bedWarsGame != null) bedWarsGame.stop();
+        if (bedWarsNpcManager != null) bedWarsNpcManager.removeAll();
         getLogger().info("SimpleEvents disabled.");
     }
 
@@ -77,4 +96,11 @@ public final class SimpleEventsPlugin extends JavaPlugin {
     public DungeonGui getDungeonGui()            { return dungeonGui; }
     public MinigameManager getMinigameManager()  { return minigameManager; }
     public MinigameGui getMinigameGui()          { return minigameGui; }
+    public BedWarsGame getBedWarsGame()           { return bedWarsGame; }
+    public BedWarsNpcManager getBedWarsNpcManager(){ return bedWarsNpcManager; }
+
+    @Override
+    public ChunkGenerator getDefaultWorldGenerator(String worldName, String id) {
+        return new VoidChunkGenerator();
+    }
 }
