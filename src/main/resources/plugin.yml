@@ -1,0 +1,34 @@
+name: SimpleEvents
+version: 1.0.0
+main: local.simpleevents.SimpleEventsPlugin
+api-version: "1.21"
+softdepend:
+  - SimpleFactions
+  - Vault
+
+commands:
+  events:
+    description: Manage SimpleEvents (bosses, dungeons, etc.)
+    usage: /events <boss|dungeon|...>
+    permission: simpleevents.admin
+    default: op
+  dungeons:
+    description: Browse available dungeons
+    usage: /dungeons
+    permission: simpleevents.dungeon.gui
+    default: true
+  minigame:
+    description: Open the Minigames browser or manage minigame sessions
+    usage: /minigame [shop|leave|tokens|start|end|setspawn]
+    default: true
+
+permissions:
+  simpleevents.admin:
+    description: Access to all SimpleEvents admin commands
+    default: op
+  simpleevents.dungeon.gui:
+    description: Access to the dungeon browser GUI (/dungeons)
+    default: true
+  simpleevents.minigame.admin:
+    description: Access to minigame admin commands (start, end, setspawn, tokens give/take/set)
+    default: op

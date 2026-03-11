@@ -1,0 +1,44 @@
+# SimpleEvents Configuration
+
+bosses:
+  # Seconds between automatic boss spawns in the warzone (default: 3600 = 1 hour)
+  spawn-interval-seconds: 3600
+
+  # How long to wait after a boss is killed before the next spawn countdown begins
+  post-kill-delay-seconds: 1800
+
+  # Fallback world name if SimpleFactions is not present
+  world: world
+
+  # Fallback spawn center coordinates (used when SimpleFactions warzone is unavailable)
+  center-x: 0.0
+  center-z: 0.0
+
+  # Radius around the center in which bosses can spawn (fallback mode)
+  spawn-radius: 200
+
+minigames:
+  # Seconds players wait before the next match countdown begins (default: 120)
+  next-match-wait-seconds: 120
+
+  # Seconds for the final pre-game countdown (default: 30)
+  countdown-seconds: 30
+
+  # Maximum point/token multiplier when games repeatedly fail to fill (default: 3.0)
+  max-multiplier: 3.0
+
+  # Spawn locations and player token balances are stored below automatically.
+  # locations:
+  #   bed_wars:
+  #     world: world
+  #     x: 0.0
+  #     y: 64.0
+  #     z: 0.0
+  # tokens:
+  #   <uuid>: 0
+
+dungeons:
+  # Entry (portal) locations for each dungeon.
+  # Set these in-game with: /events dungeon setlocation <type>
+  # Remove with: /events dungeon removelocation <type>
+  locations: {}
