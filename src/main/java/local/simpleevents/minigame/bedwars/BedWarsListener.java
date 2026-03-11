@@ -374,6 +374,10 @@ public class BedWarsListener implements Listener {
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
+
+        // Remove from lobby if waiting
+        game.leaveLobby(player);
+
         if (!game.isParticipant(player)) return;
 
         // Treat disconnect as death/elimination

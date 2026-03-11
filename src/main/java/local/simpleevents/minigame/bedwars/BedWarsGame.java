@@ -1,6 +1,8 @@
 package local.simpleevents.minigame.bedwars;
 
 import local.simpleevents.SimpleEventsPlugin;
+import local.simplefactions.FactionManager;
+import local.simplefactions.FactionManager.Faction;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
@@ -12,99 +14,248 @@ import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
- * Manages one live Bed Wars match.
+ * Manages one Bed Wars match with a lobby phase followed by a live game phase.
  *
- * Responsibilities:
- *  - Team assignment & island tracking
- *  - Player spawn kits
- *  - Death / respawn logic (weapon/tool persistence on death)
- *  - Bed destruction logic
- *  - Elimination tracking
- *  - Generator startup & cleanup
- *  - Island regen & haste effects (applied every 2s to players in their area)
+ * Flow:
+ *  1. Players call {@link #joinLobby(Player)} / {@link #leaveLobby(Player)}.
+ *  2. Admin calls {@link #startGame(FactionManager)}, which:
+ *     a. Groups lobby players into alliance clusters (same faction / allied factions → same team).
+ *     b. Shuffles and assigns a pre-configured wool-colour to each cluster.
+ *     c. Loads locations from BedWarsLocationStore.
+ *     d. Teleports players, starts generators, runs effect loops.
+ *  3. After the game, {@link #reset()} restores the LOBBY phase for a new match.
  */
 public class BedWarsGame {
 
-    private final SimpleEventsPlugin plugin;
+    public enum GamePhase { LOBBY, IN_PROGRESS, ENDED }
 
-    // Islands indexed by team
+    private final SimpleEventsPlugin    plugin;
+    private final BedWarsLocationStore  locationStore;
+
+    private GamePhase phase = GamePhase.LOBBY;
+
+    // ── Lobby ─────────────────────────────────────────────────────────────────
+    private final Set<UUID> lobbyPlayers = new LinkedHashSet<>();
+
+    // ── Active game ────────────────────────────────────────────────────────────
+    /** Islands indexed by team (only contains assigned teams, populated at start). */
     private final Map<BedWarsTeam, BedWarsIsland> islands = new EnumMap<>(BedWarsTeam.class);
 
-    // Players → their team
-    private final Map<UUID, BedWarsTeam> playerTeams = new HashMap<>();
-
-    // Tracks the highest pickaxe/axe tier the player has ever owned in this game
-    // (persists through death so they respawn with the tier below their best)
-    private final Map<UUID, Integer> bestPickaxeTier = new HashMap<>();
-    private final Map<UUID, Integer> bestAxeTier     = new HashMap<>();
-    // Whether the player has purchased shears (persists)
-    private final Set<UUID> hasShears = new HashSet<>();
-    // Whether the player has a bow (resets on death like sword)
-    private final Set<UUID> hasBow    = new HashSet<>();
-
-    // Island generators
+    private final Map<UUID, BedWarsTeam> playerTeams    = new HashMap<>();
+    private final Map<UUID, Integer>     bestPickaxeTier = new HashMap<>();
+    private final Map<UUID, Integer>     bestAxeTier     = new HashMap<>();
+    private final Set<UUID>              hasShears       = new HashSet<>();
+    private final Set<UUID>              hasBow          = new HashSet<>();
     private final Map<BedWarsTeam, IslandGenerator> generators = new EnumMap<>(BedWarsTeam.class);
-
-    // Central generator (diamond + emerald)
     private CentralGenerator centralGenerator;
-
-    // Repeating task for passive island effects (regen, haste, trap detection)
-    private int effectTaskId = -1;
-
-    // Players currently in 3-second spectator respawn cooldown
+    private int  effectTaskId = -1;
     private final Set<UUID> respawning = new HashSet<>();
 
-    private boolean ended = false;
-
-    public BedWarsGame(SimpleEventsPlugin plugin) {
-        this.plugin = plugin;
-        for (BedWarsTeam team : BedWarsTeam.values()) {
-            islands.put(team, new BedWarsIsland(team));
-        }
+    public BedWarsGame(SimpleEventsPlugin plugin, BedWarsLocationStore locationStore) {
+        this.plugin        = plugin;
+        this.locationStore = locationStore;
     }
 
-    // ── Game start ─────────────────────────────────────────────────────────────
+    // ── Lobby management ───────────────────────────────────────────────────────
+
+    public boolean joinLobby(Player player) {
+        if (phase != GamePhase.LOBBY) return false;
+        return lobbyPlayers.add(player.getUniqueId());
+    }
+
+    public boolean leaveLobby(Player player) {
+        return lobbyPlayers.remove(player.getUniqueId());
+    }
+
+    public boolean isInLobby(UUID uid)         { return lobbyPlayers.contains(uid); }
+    public Set<UUID> getLobbyPlayers()          { return Collections.unmodifiableSet(lobbyPlayers); }
+    public int getLobbySize()                   { return lobbyPlayers.size(); }
+
+    // ── Automatic game start ───────────────────────────────────────────────────
 
     /**
-     * Called once all teams are assigned and locations are configured.
-     * Starts island generators, effects loop, and teleports players to spawns.
+     * Reads the lobby, forms alliance clusters, assigns wool colours, then
+     * loads locations and launches the game.
+     *
+     * @param fm  FactionManager from SimpleFactions (may be null — solo random teams).
+     * @return error message if start failed, or null on success.
      */
-    public void start() {
-        // Start island generators
+    public String startGame(FactionManager fm) {
+        if (phase != GamePhase.LOBBY) return "Game is already in progress or has ended (use /bw reset).";
+        if (lobbyPlayers.isEmpty()) return "No players are in the lobby!";
+
+        // 1 — Build alliance clusters
+        List<List<UUID>> clusters = buildClusters(fm);
+
+        // 2 — Find configured colour slots and shuffle for randomness
+        List<BedWarsTeam> available = Arrays.stream(BedWarsTeam.values())
+                .filter(locationStore::isConfigured)
+                .collect(Collectors.toList());
+        Collections.shuffle(available);
+
+        if (available.isEmpty()) return "No team colours have been configured yet! Use /bw set teamspawn <colour>.";
+        if (clusters.size() > available.size()) {
+            // More groups than slots — merge the smallest groups until we fit
+            clusters.sort(Comparator.comparingInt(List::size));
+            while (clusters.size() > available.size()) {
+                List<UUID> smallest = clusters.remove(0);
+                clusters.get(0).addAll(smallest);
+            }
+        }
+
+        // 3 — Assign colours, create islands, populate locations
+        phase = GamePhase.IN_PROGRESS;
+        Collections.shuffle(clusters); // also randomise which cluster gets each colour
+        for (int i = 0; i < clusters.size(); i++) {
+            BedWarsTeam colour = available.get(i);
+            BedWarsIsland island = new BedWarsIsland(colour);
+
+            island.setSpawnLocation(locationStore.getSpawn(colour));
+            island.setIslandGeneratorLoc(locationStore.getGenerator(colour));
+            island.setShopNpcLocation(locationStore.getShop(colour));
+            island.setUpgraderNpcLocation(locationStore.getUpgrader(colour));
+            island.setBedLocation(locationStore.getBed(colour));
+            island.setTeamChestLocation(locationStore.getChest(colour));
+
+            islands.put(colour, island);
+
+            for (UUID uid : clusters.get(i)) {
+                Player p = Bukkit.getPlayer(uid);
+                if (p == null || !p.isOnline()) continue;
+                registerPlayer(p, colour, island);
+                // Teleport to spawn
+                Location spawn = island.getSpawnLocation();
+                if (spawn != null) p.teleport(spawn);
+                p.sendMessage(colour.getColor() + "[Bed Wars] §7You are on the "
+                        + colour.getDisplayName() + " §7team!");
+            }
+        }
+
+        // 4 — Start generators, kit players, effects loop
+        launchGame();
+        return null; // success
+    }
+
+    /** Builds alliance clusters: same faction / allied factions → same cluster. */
+    private List<List<UUID>> buildClusters(FactionManager fm) {
+        // Group key: "f:factionname" for members, "s:uuid" for factionless solo
+        Map<UUID, String> playerKey = new HashMap<>();
+        for (UUID uid : lobbyPlayers) {
+            if (fm != null) {
+                Faction f = fm.getFaction(uid);
+                playerKey.put(uid, f != null ? "f:" + f.getName().toLowerCase() : "s:" + uid);
+            } else {
+                playerKey.put(uid, "s:" + uid);
+            }
+        }
+
+        // Union-Find: canonical[key] points to its root
+        Map<String, String> canonical = new HashMap<>();
+        for (String key : new HashSet<>(playerKey.values())) canonical.put(key, key);
+
+        // Merge ally pairs
+        if (fm != null) {
+            Set<String> factionKeys = playerKey.values().stream()
+                    .filter(k -> k.startsWith("f:")).collect(Collectors.toSet());
+            for (String keyA : factionKeys) {
+                String fNameA = keyA.substring(2);
+                Faction fA = fm.getFactionByName(fNameA);
+                if (fA == null) continue;
+                for (String keyB : factionKeys) {
+                    if (keyA.equals(keyB)) continue;
+                    String fNameB = keyB.substring(2);
+                    if (fA.isAlly(fNameB)) {
+                        union(canonical, keyA, keyB);
+                    }
+                }
+            }
+        }
+
+        // Build final groups
+        Map<String, List<UUID>> grouped = new LinkedHashMap<>();
+        for (UUID uid : lobbyPlayers) {
+            String root = find(canonical, playerKey.get(uid));
+            grouped.computeIfAbsent(root, k -> new ArrayList<>()).add(uid);
+        }
+        return new ArrayList<>(grouped.values());
+    }
+
+    private String find(Map<String, String> m, String k) {
+        while (!m.get(k).equals(k)) { m.put(k, m.get(m.get(k))); k = m.get(k); }
+        return k;
+    }
+    private void union(Map<String, String> m, String a, String b) {
+        String ra = find(m, a), rb = find(m, b);
+        if (!ra.equals(rb)) m.put(rb, ra);
+    }
+
+    /** Registers a player into a team at game start. */
+    private void registerPlayer(Player player, BedWarsTeam team, BedWarsIsland island) {
+        UUID uid = player.getUniqueId();
+        playerTeams.put(uid, team);
+        island.addMember(uid);
+        bestPickaxeTier.put(uid, -1); // -1 = no pickaxe purchased yet
+        bestAxeTier.put(uid, -1);
+        lobbyPlayers.remove(uid);     // no longer in lobby
+    }
+
+    /** Starts generators, gives kits, begins effect loop. */
+    private void launchGame() {
         for (Map.Entry<BedWarsTeam, BedWarsIsland> entry : islands.entrySet()) {
             IslandGenerator gen = new IslandGenerator(plugin, entry.getValue());
             generators.put(entry.getKey(), gen);
             gen.restart();
         }
 
-        // Give kits to all players
+        // Central generator
+        CentralGenerator cg = new CentralGenerator(
+                plugin, locationStore.getDiamond(), locationStore.getEmerald());
+        centralGenerator = cg;
+        cg.start();
+
+        // Kits & game mode
         for (UUID uid : playerTeams.keySet()) {
             Player p = Bukkit.getPlayer(uid);
-            if (p != null) giveKit(p, false);
+            if (p != null) {
+                p.getInventory().clear();
+                p.setGameMode(GameMode.SURVIVAL);
+                giveKit(p, false);
+            }
         }
 
-        // Passive effects loop (every 2 seconds)
         effectTaskId = Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, this::tickEffects, 40L, 40L);
     }
 
-    /** Clean up all tasks. */
+    /** Stops all tasks. */
     public void stop() {
-        ended = true;
+        phase = GamePhase.ENDED;
         if (effectTaskId != -1) { Bukkit.getScheduler().cancelTask(effectTaskId); effectTaskId = -1; }
         generators.values().forEach(IslandGenerator::cancel);
-        if (centralGenerator != null) centralGenerator.stop();
+        if (centralGenerator != null) { centralGenerator.stop(); centralGenerator = null; }
+    }
+
+    /**
+     * Resets the game to LOBBY phase so a new match can be started.
+     * NPCs must be removed separately before calling this.
+     */
+    public void reset() {
+        stop();
+        phase = GamePhase.LOBBY;
+        islands.clear();
+        playerTeams.clear();
+        bestPickaxeTier.clear();
+        bestAxeTier.clear();
+        hasShears.clear();
+        hasBow.clear();
+        generators.clear();
+        respawning.clear();
+        lobbyPlayers.clear();
     }
 
     // ── Player management ──────────────────────────────────────────────────────
-
-    public void addPlayer(Player player, BedWarsTeam team) {
-        playerTeams.put(player.getUniqueId(), team);
-        islands.get(team).addMember(player.getUniqueId());
-        bestPickaxeTier.put(player.getUniqueId(), 0); // starts at wood (tier 0, but not given until purchased)
-        bestAxeTier.put(player.getUniqueId(), 0);
-    }
 
     public BedWarsTeam getTeam(Player player) {
         return playerTeams.get(player.getUniqueId());
@@ -821,7 +972,9 @@ public class BedWarsGame {
 
     // ── Getters ────────────────────────────────────────────────────────────────
 
-    public boolean isEnded()                    { return ended; }
+    public boolean isEnded()                    { return phase == GamePhase.ENDED; }
+    public boolean isInProgress()               { return phase == GamePhase.IN_PROGRESS; }
+    public GamePhase getPhase()                 { return phase; }
     public boolean isRespawning(UUID uid)        { return respawning.contains(uid); }
     public Map<BedWarsTeam, BedWarsIsland> getIslands() { return Collections.unmodifiableMap(islands); }
 
@@ -829,4 +982,5 @@ public class BedWarsGame {
     public CentralGenerator getCentralGenerator()         { return centralGenerator; }
 
     public Map<UUID, BedWarsTeam> getPlayerTeams()       { return Collections.unmodifiableMap(playerTeams); }
+    public BedWarsLocationStore getLocationStore()        { return locationStore; }
 }

@@ -16,6 +16,7 @@ import org.bukkit.generator.ChunkGenerator;
 import local.simpleevents.minigame.bedwars.BedWarsCommand;
 import local.simpleevents.minigame.bedwars.BedWarsGame;
 import local.simpleevents.minigame.bedwars.BedWarsListener;
+import local.simpleevents.minigame.bedwars.BedWarsLocationStore;
 import local.simpleevents.minigame.bedwars.BedWarsNpcManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -30,6 +31,7 @@ public final class SimpleEventsPlugin extends JavaPlugin {
     private MinigameGui minigameGui;
     private BedWarsGame bedWarsGame;
     private BedWarsNpcManager bedWarsNpcManager;
+    private BedWarsLocationStore bedWarsLocationStore;
 
     public static SimpleEventsPlugin getInstance() { return instance; }
 
@@ -70,11 +72,12 @@ public final class SimpleEventsPlugin extends JavaPlugin {
         getCommand("minigame").setTabCompleter(minigameCommand);
 
         // Bed Wars system
-        bedWarsGame = new BedWarsGame(this);
+        bedWarsLocationStore = new BedWarsLocationStore(this);
+        bedWarsGame = new BedWarsGame(this, bedWarsLocationStore);
         bedWarsNpcManager = new BedWarsNpcManager(this, bedWarsGame);
         BedWarsListener bedWarsListener = new BedWarsListener(this, bedWarsGame, bedWarsNpcManager);
         getServer().getPluginManager().registerEvents(bedWarsListener, this);
-        BedWarsCommand bedWarsCommand = new BedWarsCommand(this, bedWarsGame, bedWarsNpcManager);
+        BedWarsCommand bedWarsCommand = new BedWarsCommand(this, bedWarsGame, bedWarsNpcManager, bedWarsLocationStore);
         getCommand("bw").setExecutor(bedWarsCommand);
         getCommand("bw").setTabCompleter(bedWarsCommand);
 
@@ -96,8 +99,9 @@ public final class SimpleEventsPlugin extends JavaPlugin {
     public DungeonGui getDungeonGui()            { return dungeonGui; }
     public MinigameManager getMinigameManager()  { return minigameManager; }
     public MinigameGui getMinigameGui()          { return minigameGui; }
-    public BedWarsGame getBedWarsGame()           { return bedWarsGame; }
-    public BedWarsNpcManager getBedWarsNpcManager(){ return bedWarsNpcManager; }
+    public BedWarsGame getBedWarsGame()                   { return bedWarsGame; }
+    public BedWarsNpcManager getBedWarsNpcManager()       { return bedWarsNpcManager; }
+    public BedWarsLocationStore getBedWarsLocationStore() { return bedWarsLocationStore; }
 
     @Override
     public ChunkGenerator getDefaultWorldGenerator(String worldName, String id) {

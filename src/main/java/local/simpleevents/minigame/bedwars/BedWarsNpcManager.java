@@ -40,14 +40,22 @@ public class BedWarsNpcManager {
     // ── Spawn ──────────────────────────────────────────────────────────────────
 
     /**
-     * Spawns a shop NPC at the configured location for the given team.
+     * Spawns a shop NPC at the configured location for the given team (reads from active island).
      * Does nothing if the island has no shop location set.
      */
     public void spawnShopNpc(BedWarsTeam team) {
         BedWarsIsland island = game.getIsland(team);
         if (island == null || island.getShopNpcLocation() == null) return;
         spawnNpc(island.getShopNpcLocation(), team, NpcRole.SHOP,
-                team.getColor() + team.name() + " §eItem Shop");
+                team.getColor() + team.getDisplayName() + " §eItem Shop");
+    }
+
+    /**
+     * Spawns a shop NPC at an explicit location (used by /bw set teamshop outside a live game).
+     */
+    public void spawnShopNpc(BedWarsTeam team, Location loc) {
+        spawnNpc(loc, team, NpcRole.SHOP,
+                team.getColor() + team.getDisplayName() + " §eItem Shop");
     }
 
     /**
@@ -57,7 +65,15 @@ public class BedWarsNpcManager {
         BedWarsIsland island = game.getIsland(team);
         if (island == null || island.getUpgraderNpcLocation() == null) return;
         spawnNpc(island.getUpgraderNpcLocation(), team, NpcRole.UPGRADER,
-                team.getColor() + team.name() + " §5Team Upgrades");
+                team.getColor() + team.getDisplayName() + " §5Team Upgrades");
+    }
+
+    /**
+     * Spawns an upgrader NPC at an explicit location (used by /bw set teamupgrade outside a live game).
+     */
+    public void spawnUpgraderNpc(BedWarsTeam team, Location loc) {
+        spawnNpc(loc, team, NpcRole.UPGRADER,
+                team.getColor() + team.getDisplayName() + " §5Team Upgrades");
     }
 
     private void spawnNpc(Location loc, BedWarsTeam team, NpcRole role, String name) {
@@ -111,11 +127,11 @@ public class BedWarsNpcManager {
 
     // ── Spawn all ─────────────────────────────────────────────────────────────
 
-    /** Convenience — spawns all shop & upgrader NPCs for all teams. */
+    /** Convenience — spawns shop & upgrader NPCs for all active (assigned) teams. */
     public void spawnAll() {
-        for (BedWarsTeam team : BedWarsTeam.values()) {
-            spawnShopNpc(team);
-            spawnUpgraderNpc(team);
+        for (BedWarsIsland island : game.getAllIslands()) {
+            spawnShopNpc(island.getTeam());
+            spawnUpgraderNpc(island.getTeam());
         }
     }
 }
