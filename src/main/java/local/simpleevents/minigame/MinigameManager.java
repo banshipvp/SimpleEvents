@@ -222,6 +222,36 @@ public class MinigameManager {
     }
 
     /**
+     * Forces the session to start IMMEDIATELY — bypasses both the countdown and
+     * the minimum-player check.  Intended for admin testing.
+     */
+    public boolean forceStartImmediate(MinigameType type) {
+        MinigameSession session = sessions.get(type);
+        if (session == null
+                || (session.getState() != MinigameState.WAITING
+                    && session.getState() != MinigameState.STARTING)) {
+            return false;
+        }
+        // Cancel any running auto-start or countdown task
+        if (session.getCountdownTaskId() != -1) {
+            Bukkit.getScheduler().cancelTask(session.getCountdownTaskId());
+        }
+        if (session.getParticipantCount() == 0) {
+            return false; // nothing to start — tell admin to join first
+        }
+        session.setState(MinigameState.IN_PROGRESS);
+        Location gameSpawn = getSpawnLocation(type);
+        if (gameSpawn != null) {
+            for (UUID uid : session.getParticipantIds()) {
+                Player p = Bukkit.getPlayer(uid);
+                if (p != null) p.teleport(gameSpawn);
+            }
+        }
+        broadcastToSession(session, "\u00a7a[Minigames] \u00a7lThe match has begun! \u00a7a(Admin force-started)");
+        return true;
+    }
+
+    /**
      * Forces the current session to end with the current ranking derived from points.
      */
     public boolean forceEnd(MinigameType type) {

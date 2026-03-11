@@ -70,10 +70,11 @@ public class MinigameCommand implements CommandExecutor, TabCompleter {
                     player.sendMessage("§c[Minigames] You are not in any minigame session.");
                 }
             }
-            case "tokens" -> handleTokens(sender, args);
-            case "start"  -> handleStart(sender, args);
-            case "end"    -> handleEnd(sender, args);
-            case "setspawn" -> handleSetSpawn(sender, args);
+            case "tokens"     -> handleTokens(sender, args);
+            case "start"      -> handleStart(sender, args);
+            case "forcestart" -> handleForceStart(sender, args);
+            case "end"        -> handleEnd(sender, args);
+            case "setspawn"   -> handleSetSpawn(sender, args);
             default -> sender.sendMessage("§c[Minigames] Unknown sub-command. Try /minigame.");
         }
 
@@ -149,6 +150,18 @@ public class MinigameCommand implements CommandExecutor, TabCompleter {
         }
     }
 
+    private void handleForceStart(CommandSender sender, String[] args) {
+        if (!sender.hasPermission(ADMIN_PERM)) { sender.sendMessage("§c[Minigames] No permission."); return; }
+        if (args.length < 2) { sender.sendMessage("§cUsage: /minigame forcestart <bedwars|skywars|battleroyale>"); return; }
+        MinigameType type = resolveType(args[1]);
+        if (type == null) { sender.sendMessage("§cUnknown minigame type."); return; }
+        if (manager.forceStartImmediate(type)) {
+            sender.sendMessage("§a[Minigames] Force-started §6" + type.getKey() + " §aimmediately (no countdown, no player minimum).");
+        } else {
+            sender.sendMessage("§c[Minigames] Could not force-start — session may be in-progress, or nobody has joined yet.");
+        }
+    }
+
     private void handleEnd(CommandSender sender, String[] args) {
         if (!sender.hasPermission(ADMIN_PERM)) { sender.sendMessage("§c[Minigames] No permission."); return; }
         if (args.length < 2) { sender.sendMessage("§cUsage: /minigame end <bedwars|skywars|battleroyale>"); return; }
@@ -180,14 +193,14 @@ public class MinigameCommand implements CommandExecutor, TabCompleter {
         if (args.length == 1) {
             List<String> subs = new ArrayList<>(Arrays.asList("shop", "leave", "tokens"));
             if (sender.hasPermission(ADMIN_PERM)) {
-                subs.addAll(Arrays.asList("start", "end", "setspawn"));
+                subs.addAll(Arrays.asList("start", "forcestart", "end", "setspawn"));
             }
             for (String s : subs) {
                 if (s.startsWith(args[0].toLowerCase())) completions.add(s);
             }
         } else if (args.length == 2) {
             String sub = args[0].toLowerCase();
-            List<String> needsType = Arrays.asList("start", "end", "setspawn");
+            List<String> needsType = Arrays.asList("start", "forcestart", "end", "setspawn");
             if (needsType.contains(sub)) {
                 for (MinigameType t : MinigameType.values()) {
                     if (t.getKey().startsWith(args[1].toLowerCase())) completions.add(t.getKey());
